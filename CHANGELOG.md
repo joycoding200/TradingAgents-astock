@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+## [0.2.18] — 2026-07-10
+
+合并社区 PR #75（致谢 @wangyuxun6699），与 v0.2.17 的 #76 修复同属一类问题：LLM 工具调用把非股票标识当 `ticker` 传入。
+
+### 合并社区 PR
+- **#75 新闻工具校验 ticker 防概念词中断分析（@wangyuxun6699）**：运行 000629 分析时部分 Agent 把概念词「钒电池」当 `ticker` 传给 `get_news`，底层解析抛 ValueError 中断分析。三层修复：① `get_news` / `get_insider_transactions` 增加 6 位代码校验，误传时**返回可恢复的错误提示**（不抛异常、不中断 LangGraph）；② 修正 5 个分析师提示词里误导性的 `get_news(query, ...)` 描述 → `get_news(ticker, ...)`（**这是模型传概念词的提示词层根因**）；③ 强化 `instrument_context`，明确「参数名为 ticker 时只传目标股票代码」。
+- 与 v0.2.17 的 `resolve_ticker` 报错改进形成互补防线：提示词预防 → 工具层校验软着陆 → 解析层报错可自纠。
+
+### 测试
+- PR 新增 `tests/test_news_data_tools.py` 3 项（概念词拦截不进 vendor 层 / 合法 6 位码正常路由）通过。
+- 全量回归：Python 3.12 干净 venv 下 `pytest tests/` **135 passed + 44 subtests**（仅 test_google_api_key 因未装可选依赖 `[google]` 跳过）。
+
 ## [0.2.17] — 2026-07-10
 
 两个健壮性修复，无破坏性变更、无新依赖。
