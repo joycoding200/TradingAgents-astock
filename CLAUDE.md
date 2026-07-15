@@ -6,7 +6,7 @@
 - **仓库**: https://github.com/simonlin1212/TradingAgents-astock
 - **协议**: Apache 2.0
 - **Python**: >=3.10
-- **当前版本**: 0.2.18
+- **当前版本**: 0.2.19
 
 ## 架构
 
@@ -49,6 +49,9 @@ v0.2.5 起完全移除 akshare 依赖，所有数据通过直连 HTTP API 获取
 
 ### 东财接口防封限流（v0.2.11 新增，移植自 a-stock-data v3.2）
 `a_stock.py` 里所有指向 `eastmoney.com` 的请求（push2 / push2his / datacenter-web / search-api / np-weblist 共 7 个调用点）统一走节流入口 `_em_get()`：模块级时间戳串行限流（默认间隔 `EM_MIN_INTERVAL=1.0s`，可用同名环境变量覆盖）+ 0.1~0.5s 随机抖动 + 复用 `requests.Session`（Keep-Alive）+ 默认 UA。多 Agent 跑批量分析不再触发东财临时封 IP。**仅东财限流**——mootdx(TCP) / 腾讯 / 新浪 / 同花顺 / 财联社 / 百度 等非东财源不受影响。批量场景可设 `EM_MIN_INTERVAL=1.5~2` 进一步降速。新增东财端点时务必走 `_em_get` 而非裸 `requests.get`。
+
+### 关键财务数据缺失（v0.2.19 已修复）
+`get_fundamentals` / 三表 / `get_profit_forecast` 曾因三个 bug 静默丢数据（各源 try/except 吞错只留 warning）：(1) mootdx `client.finance()` 字段为拼音缩写（`jinglirun`/`zhuyingshouru`/`meigujingzichan`...），旧 `field_map` 用 `eps`/`roe` 英文名取不到，已改拼音字段并推算 `EPS=jinglirun/zongguben`、`ROE=jinglirun/jingzichan*100`；(2) 新浪财报实际结构为 `result.data.report_list[日期]["data"]`，旧代码误用 `result.data.lrb` key 致三表恒空，已重写解析；(3) pandas 3.0 `read_html` 不再接受裸 HTML 字符串（当文件路径 open），同花顺 EPS 崩溃，已改 `pd.read_html(io.StringIO(r.text))`。回归测试见 `tests/test_astock_fundamentals_fix.py`，详见 `issues/006-fundamentals-data-missing.md`。主力资金 `get_fund_flow`（东财 push2）接口本身可用，无需改动。
 
 ### 模型兼容性
 deepseek-v4-flash 等模型在 tool call 时可能返回中文股票名而非 6 位代码。`safe_ticker_component` 已加兜底自动转码，但不同模型表现仍有差异。

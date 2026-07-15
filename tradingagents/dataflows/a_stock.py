@@ -20,6 +20,7 @@ from dateutil.relativedelta import relativedelta
 import json as _json
 import os
 import logging
+import io
 import math
 import random
 import re as _re
@@ -338,7 +339,7 @@ def _ths_eps_forecast(code: str) -> pd.DataFrame:
     }
     r = _requests.get(url, headers=headers, timeout=15)
     r.encoding = "gbk"
-    dfs = pd.read_html(r.text)
+    dfs = pd.read_html(io.StringIO(r.text))
     # Find the table containing EPS data
     for df in dfs:
         cols = [str(c) for c in df.columns]
@@ -740,7 +741,10 @@ def get_fundamentals(
         except Exception as e:
             logger.warning("Tencent quote failed for %s: %s", code, e)
 
-        # --- mootdx: financial snapshot (quarterly) ---
+        # --- mootdx: financial snapshot (F10 概况，字段为拼音缩写) ---
+        # 注意：mootdx client.finance() 返回的是 F10 公司概况，列名为拼音缩写
+        # (jinglirun=净利润 / zhuyingshouru=主营收入 / meigujingzichan=每股净资产 ...)，
+        # 并无 eps/roe 英文字段；EPS/ROE 需由净利润÷股本、净利润÷净资产 推算。
         try:
             client = _get_mootdx_client()
             fin = client.finance(symbol=code)
@@ -749,13 +753,19 @@ def get_fundamentals(
             ):
                 row = fin.iloc[0] if isinstance(fin, pd.DataFrame) else fin
                 field_map = {
-                    "eps": "EPS (Quarterly)",
-                    "bvps": "Book Value Per Share",
-                    "roe": "ROE (%)",
-                    "profit": "Net Profit",
-                    "income": "Revenue",
-                    "liutongguben": "Float Shares",
-                    "zongguben": "Total Shares",
+                    "zongguben": "Total Shares (总股本)",
+                    "liutongguben": "Float Shares (流通股本)",
+                    "zhuyingshouru": "Revenue (主营收入)",
+                    "jinglirun": "Net Profit (净利润)",
+                    "yingyelirun": "Operating Profit (营业利润)",
+                    "lirunzonghe": "Total Profit (利润总额)",
+                    "shuihoulirun": "After-tax Profit (税后利润)",
+                    "meigujingzichan": "Book Value Per Share (每股净资产)",
+                    "jingyingxianjinliu": "Operating Cash Flow (经营现金流)",
+                    "zongxianjinliu": "Total Cash Flow (总现金流)",
+                    "zongzichan": "Total Assets (总资产)",
+                    "jingzichan": "Net Assets (净资产)",
+                    "cunhuo": "Inventory (存货)",
                 }
                 idx = row.index if hasattr(row, "index") else []
                 for field, label in field_map.items():
@@ -763,6 +773,25 @@ def get_fundamentals(
                         val = row[field]
                         if val is not None and str(val) != "nan":
                             lines.append(f"{label}: {val}")
+                # 推算 EPS / ROE（mootdx 无直字段）
+                def _num(key):
+                    if key not in idx:
+                        return None
+                    try:
+                        f = float(row[key])
+                    except (ValueError, TypeError):
+                        return None
+                    return f if f == f else None  # 过滤 nan
+
+                jinglirun = _num("jinglirun")
+                zongguben = _num("zongguben")
+                jingzichan = _num("jingzichan")
+                if jinglirun is not None and zongguben:
+                    lines.append(f"EPS (derived): {jinglirun / zongguben:.4f}")
+                if jinglirun is not None and jingzichan:
+                    lines.append(
+                        f"ROE (%) (derived): {jinglirun / jingzichan * 100:.2f}"
+                    )
         except Exception as e:
             logger.warning("mootdx finance failed for %s: %s", code, e)
 
@@ -894,6 +923,7 @@ def _get_financial_report_sina(
     """Shared helper: fetch financial report via Sina direct HTTP API.
 
     report_type: '资产负债表' | '利润表' | '现金流量表'
+    返回 DataFrame：每行一个报告期，列为报表项目名(item_title)，值为 item_value。
     """
     _report_type_map = {
         "资产负债表": "fzb",
@@ -915,23 +945,39 @@ def _get_financial_report_sina(
     r = _requests.get(url, params=params, headers={"User-Agent": _UA}, timeout=15)
     d = r.json()
 
-    result = d.get("result", {}).get("data", {})
-    items = result.get(source_type, [])
-    if not isinstance(items, list) or not items:
+    # 新浪 API 结构：result.data.report_list = {日期YYYYMMDD: {data: [{item_title, item_value, ...}]}}
+    # 旧代码误用 result.data.<source_type> 取数（key 不存在），导致三表恒空。
+    report_list = d.get("result", {}).get("data", {}).get("report_list", {})
+    if not isinstance(report_list, dict) or not report_list:
         return pd.DataFrame()
 
-    df = pd.DataFrame(items)
+    rows = []
+    for date_key, report in report_list.items():
+        items = report.get("data", []) if isinstance(report, dict) else []
+        row = {"报告日": date_key}
+        for item in items:
+            if isinstance(item, dict):
+                title = item.get("item_title")
+                if title and title not in row:
+                    row[title] = item.get("item_value")
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    # 日期解析 + 按报告期降序（最新在前）
+    df["报告日"] = pd.to_datetime(df["报告日"], format="%Y%m%d", errors="coerce")
+    df = df.sort_values("报告日", ascending=False).reset_index(drop=True)
 
     # Filter by curr_date
-    if curr_date and "报告日" in df.columns:
-        df["报告日"] = pd.to_datetime(df["报告日"], errors="coerce")
-        cutoff = pd.to_datetime(curr_date)
+    if curr_date:
+        cutoff = pd.to_datetime(curr_date, errors="coerce")
         df = df[df["报告日"] <= cutoff]
 
-    # Filter by frequency (annual = month 12 reports only)
-    if freq.lower() == "annual" and "报告日" in df.columns:
-        months = pd.to_datetime(df["报告日"], errors="coerce").dt.month
-        df = df[months == 12]
+    # Filter by frequency (annual = 年报，12 月末报告)
+    if freq.lower() == "annual":
+        df = df[df["报告日"].dt.month == 12]
 
     return df.head(8)
 
