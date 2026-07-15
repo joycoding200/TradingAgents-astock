@@ -1442,9 +1442,9 @@ def get_insider_transactions(
     # --- 2. 股东户数变化（F10 ShareholderResearch gdrs） ---
     try:
         url = f"https://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/PageAjax?code={prefix}{code}"
-        r = _requests.get(
+        r = _em_get(
             url,
-            headers={"User-Agent": _UA, "Referer": "https://emweb.eastmoney.com/"},
+            headers={"Referer": "https://emweb.eastmoney.com/"},
             timeout=10,
         )
         gdrs = (r.json() or {}).get("gdrs", []) or []
@@ -1467,9 +1467,9 @@ def get_insider_transactions(
     # --- 3. 董监高持股变动（F10 CompanyManagement cgbd） ---
     try:
         url = f"https://emweb.securities.eastmoney.com/PC_HSF10/CompanyManagement/PageAjax?code={prefix}{code}"
-        r = _requests.get(
+        r = _em_get(
             url,
-            headers={"User-Agent": _UA, "Referer": "https://emweb.eastmoney.com/"},
+            headers={"Referer": "https://emweb.eastmoney.com/"},
             timeout=10,
         )
         cgbd = (r.json() or {}).get("cgbd", []) or []
@@ -1860,9 +1860,9 @@ def get_concept_blocks(
             "https://emweb.securities.eastmoney.com/PC_HSF10/"
             f"CoreConception/PageAjax?code={prefix}{code}"
         )
-        r = _requests.get(
+        r = _em_get(
             url,
-            headers={"User-Agent": _UA, "Referer": "https://emweb.eastmoney.com/"},
+            headers={"Referer": "https://emweb.eastmoney.com/"},
             timeout=10,
         )
         d = r.json()

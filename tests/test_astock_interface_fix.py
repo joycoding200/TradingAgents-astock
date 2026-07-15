@@ -32,7 +32,7 @@ def test_get_concept_blocks_uses_eastmoney_f10(monkeypatch):
              "MAINPOINT_CONTENT": "should be ignored"},
         ],
     }
-    monkeypatch.setattr(a_stock._requests, "get", lambda *a, **k: _FakeResp(fake))
+    monkeypatch.setattr(a_stock, "_em_get", lambda url, **kw: _FakeResp(fake))
 
     out = a_stock.get_concept_blocks("300308")
     assert "CPO概念" in out

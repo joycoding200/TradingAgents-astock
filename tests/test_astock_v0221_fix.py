@@ -151,7 +151,7 @@ def test_get_insider_transactions_three_sections(monkeypatch):
             ]})
         return _FakeResp({})
 
-    monkeypatch.setattr(a_stock._requests, "get", _fake_get)
+    monkeypatch.setattr(a_stock, "_em_get", _fake_get)
 
     out = a_stock.get_insider_transactions("300308")
     assert "十大股东" in out
@@ -175,8 +175,8 @@ def test_get_insider_transactions_holders_only_when_pages_empty(monkeypatch):
     ]
     monkeypatch.setattr(a_stock, "_eastmoney_datacenter",
                         lambda *a, **k: holders)
-    monkeypatch.setattr(a_stock._requests, "get",
-                        lambda *a, **k: _FakeResp({}))
+    monkeypatch.setattr(a_stock, "_em_get",
+                        lambda url, **kw: _FakeResp({}))
 
     out = a_stock.get_insider_transactions("300308")
     assert "十大股东" in out
