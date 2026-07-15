@@ -1336,44 +1336,50 @@ def get_global_news(
 def get_insider_transactions(
     ticker: Annotated[str, "A-stock code"],
 ) -> str:
-    """Get shareholder/insider activity via mootdx F10.
+    """Get top-10 shareholders & holding changes via 东财 datacenter.
 
-    Note: A-stock insider transaction data differs from US markets.
-    Uses mootdx F10 shareholder research as the closest equivalent.
+    A 股无美股式 insider transactions 概念，以十大股东持股变化作为最接近等价。
+    mootdx F10 仅返回"最新提示"栏目（通达信 TCP F10 不提供股东研究），
+    v0.2.20 改用东财 RPT_F10_EH_HOLDERS 取最新一期十大股东。
     """
     code = _normalize_ticker(ticker)
 
     try:
-        client = _get_mootdx_client()
-        text = client.F10(symbol=code, name="股东研究")
-
-        if not text or not text.strip():
-            return f"No insider/shareholder data found for A-stock '{code}'"
-
-        header = f"# Shareholder Research for {code} (A-stock)\n"
-        header += "# Note: A-stock equivalent of insider transactions\n"
-        header += "# Data source: mootdx F10\n"
-        header += (
-            f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        data = _eastmoney_datacenter(
+            "RPT_F10_EH_HOLDERS",
+            filter_str=f'(SECURITY_CODE="{code}")',
+            page_size=50,
+            sort_columns="END_DATE",
+            sort_types="-1",
         )
 
-        import re
+        if not data:
+            return f"No shareholder data found for A-stock '{code}'"
 
-        sec4_hits = list(re.finditer(r"\r?\n【4\.股东变化】\r?\n", text))
-        if sec4_hits:
-            sec4_pos = sec4_hits[-1].start()
-            before_sec4 = text[:sec4_pos]
-            sec4_text = text[sec4_pos:]
-            cut_at = 2000
-            if len(sec4_text) > cut_at:
-                sec4_text = (
-                    sec4_text[:cut_at]
-                    + "\n\n(... older shareholder history omitted, "
-                    f"{len(text) - sec4_pos - cut_at} chars truncated ...)"
-                )
-            text = before_sec4 + sec4_text
+        # 取最新一期十大股东（按 END_DATE 降序，同日期前 10 名）
+        latest_date = str(data[0].get("END_DATE", ""))[:10]
+        latest_holders = [
+            x for x in data if str(x.get("END_DATE", ""))[:10] == latest_date
+        ][:10]
 
-        return header + text
+        lines = [
+            f"# Top-10 Shareholders for {code} (A-stock)",
+            f"# Note: A-stock equivalent of insider transactions",
+            f"# Data source: 东财 datacenter RPT_F10_EH_HOLDERS",
+            f"# Report date: {latest_date}",
+            f"# Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "股东名称 | 持股数 | 持股比例(%) | 持股变化 | 是否机构",
+        ]
+        for x in latest_holders:
+            name = x.get("HOLDER_NAME", "")
+            hold = x.get("HOLD_NUM", 0)
+            ratio = x.get("HOLD_NUM_RATIO", 0)
+            change = x.get("HOLD_NUM_CHANGE", "不变")
+            is_org = "机构" if str(x.get("IS_HOLDORG")) == "1" else "个人"
+            lines.append(f"  {name} | {hold} | {ratio} | {change} | {is_org}")
+
+        return "\n".join(lines)
 
     except Exception as e:
         return f"Error retrieving insider/shareholder data for {code}: {str(e)}"
@@ -1717,79 +1723,72 @@ def get_northbound_flow(
 # Baidu PAE (百度股市通) helpers
 # ---------------------------------------------------------------------------
 
-_BAIDU_PAE_HEADERS = {
-    "Host": "finance.pae.baidu.com",
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) "
-        "Gecko/20100101 Firefox/110.0"
-    ),
-    "Accept": "application/vnd.finance-web.v1+json",
-    "Origin": "https://gushitong.baidu.com",
-    "Referer": "https://gushitong.baidu.com/",
-}
-
-
 # ---- 13. get_concept_blocks ----
 
 
 def get_concept_blocks(
     ticker: Annotated[str, "A-stock code (e.g. 688017)"],
 ) -> str:
-    """Get concept/sector/region blocks that a stock belongs to (百度股市通).
+    """Get concept/sector/region blocks that a stock belongs to (东财 F10).
 
-    Returns industry classification (申万), concept themes, and region.
-    Each block includes current day's change percentage.
+    百度 PAE getrelatedblock 接口已下线（返回 403），v0.2.20 迁移至东财 F10
+    CoreConception/PageAjax。返回所属板块（行业/地域/风格/概念）+ 核心题材要点。
+    注：东财 ssbk 不含板块当日涨幅（百度 PAE 原有），仅返回板块归属。
     """
-    import requests
-
     code = _normalize_ticker(ticker)
 
     try:
+        # 东财 F10 code 格式：SZ300308 / SH600519 / BJ832000
+        prefix = _get_prefix(code).upper()
         url = (
-            "https://finance.pae.baidu.com/api/getrelatedblock"
-            f'?stock=[{{"code":"{code}","market":"ab","type":"stock"}}]'
-            "&finClientType=pc"
+            "https://emweb.securities.eastmoney.com/PC_HSF10/"
+            f"CoreConception/PageAjax?code={prefix}{code}"
         )
-        r = requests.get(url, headers=_BAIDU_PAE_HEADERS, timeout=10)
+        r = _requests.get(
+            url,
+            headers={"User-Agent": _UA, "Referer": "https://emweb.eastmoney.com/"},
+            timeout=10,
+        )
         d = r.json()
 
-        if str(d.get("ResultCode", -1)) != "0":
-            return (
-                f"Baidu PAE error: ResultCode={d.get('ResultCode')} "
-                f"{d.get('ResultMsg', '')}"
-            )
+        ssbk = d.get("ssbk", []) or []
+        hxtc = d.get("hxtc", []) or []
 
-        result = d.get("Result", {})
-        categories = result.get(code, [])
-        if not categories:
+        if not ssbk and not hxtc:
             return f"No concept/block data for {code}"
 
         lines = [
             f"# Concept & Sector Blocks for {code} (A-stock)",
-            f"# Source: 百度股市通 (Baidu PAE)",
+            f"# Source: 东财 F10 CoreConception",
             f"# Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
         ]
 
-        concept_names: list[str] = []
+        # 所属板块（行业/地域/风格/概念，按 BOARD_RANK 排序）
+        if ssbk:
+            lines.append("## 所属板块 (行业/地域/风格/概念)")
+            for item in ssbk:
+                name = item.get("BOARD_NAME", "")
+                if name:
+                    lines.append(f"  {name}")
+            concept_names = [
+                str(item.get("BOARD_NAME", ""))
+                for item in ssbk
+                if "概念" in str(item.get("BOARD_NAME", ""))
+            ]
+            if concept_names:
+                lines.append(f"\nConcept tags: {' / '.join(concept_names)}")
 
-        for cat in categories:
-            cat_name = cat.get("name", "")
-            items = cat.get("list", [])
-            if not items:
-                continue
-            lines.append(f"## {cat_name}")
-            for item in items:
-                name = item.get("name", "")
-                ratio = item.get("ratio", "")
-                desc = item.get("describe", "")
-                suffix = f" ({desc})" if desc else ""
-                lines.append(f"  {name}{suffix}: {ratio}")
-                if cat_name == "概念":
-                    concept_names.append(name)
-
-        if concept_names:
-            lines.append(f"\nConcept tags: {' / '.join(concept_names)}")
+        # 核心题材要点
+        if hxtc:
+            points = [x for x in hxtc if str(x.get("IS_POINT")) == "1"]
+            if points:
+                lines.append("\n## 核心题材")
+                for item in points:
+                    klass = item.get("KEY_CLASSIF", "")
+                    content = str(item.get("MAINPOINT_CONTENT", "")).strip()
+                    if content:
+                        lines.append(f"  [{klass}] {content[:200]}")
 
         return "\n".join(lines)
 
