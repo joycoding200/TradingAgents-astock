@@ -48,4 +48,20 @@ DEFAULT_CONFIG = {
     "tool_vendors": {
         # Example: "get_stock_data": "alpha_vantage",  # Override category default
     },
+    # --- Alpha benchmark (reflection layer) ---
+    # ``benchmark_ticker`` overrides the map below for all tickers when set.
+    # Leave it None to auto-detect via ``benchmark_map``. Supports env var
+    # ``TRADINGAGENTS_BENCHMARK_TICKER`` for server-side override.
+    "benchmark_ticker": os.getenv("TRADINGAGENTS_BENCHMARK_TICKER"),
+    # The map supports two matching conventions:
+    #   1. yfinance exchange suffix (``.SS`` / ``.SZ``) — exact uppercase match
+    #   2. Exchange key ("sh"/"sz") — detected from 6-digit A-stock code prefix
+    #   3. Empty string "" — fallback default (CSI 300 for A-shares)
+    "benchmark_map": {
+        "sh":  "000001.SS",   # Shanghai (SSE Composite)
+        "sz":  "399001.SZ",   # Shenzhen (SZSE Component)
+        ".SS": "000001.SS",   # yfinance Shanghai
+        ".SZ": "399001.SZ",   # yfinance Shenzhen
+        "":    "000300.SS",   # default A-share benchmark → CSI 300
+    },
 }

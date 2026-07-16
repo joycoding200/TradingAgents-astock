@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+## [Unreleased]
+
+### 新增
+- **可配置 Alpha 基准（reflection 层）**：`DEFAULT_CONFIG` 新增 `benchmark_ticker`（显式覆盖，支持 `TRADINGAGENTS_BENCHMARK_TICKER` env）和 `benchmark_map`（交易所→基准映射）。沪市 6 位代码（600/601/603/605/688）自动对上证综指（000001.SS），深市（000/001/002/003/300/301）自动对深证成指（399001.SZ），兜底 CSI 300。同步自上游 v0.3.1 `78d063d` + `c93b92c`。`TradingAgentsGraph` 新增 `_detect_exchange()` / `_resolve_benchmark()`；`Reflector.reflect_on_final_decision()` 新增 `benchmark_name` 参数；reflection prompt 标签从硬编码 "CSI 300" 改为可配置。
+
 ## [0.2.22] - 2026-07-15
 
 门控 C vs A 矛盾修正 + push2 IDC 封禁代理支持 + prompt 假缺失消除。无破坏性变更、无新依赖。

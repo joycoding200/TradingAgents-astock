@@ -66,7 +66,7 @@ docker --version && docker compose version
 
 ```bash
 cd /opt
-git clone https://github.com/simonlin1212/TradingAgents-astock
+git clone https://github.com/joycoding200/TradingAgents-astock
 cd TradingAgents-astock
 ```
 
