@@ -1,7 +1,9 @@
 <h1 align="center">TradingAgents-Astock</h1>
 
 <p align="center">
-  基于 <a href="https://github.com/TauricResearch/TradingAgents">TauricResearch/TradingAgents</a>（65K ⭐）的 A 股深度特化 fork<br>
+  <a href="https://github.com/TauricResearch/TradingAgents">TauricResearch/TradingAgents</a>（65K ⭐）
+  → <a href="https://github.com/simonlin1212/tradingagents-astock">simonlin1212/tradingagents-astock</a>（A 股特化）
+  → <b>joycoding200/TradingAgents-astock</b>（本项目，持续迭代）<br>
   全 Apache 2.0 开源 · pip install 即跑 · 零外部服务依赖
 </p>
 
@@ -365,7 +367,7 @@ TradingAgents-Astock/
 
 ## 致谢
 
-本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 开源项目进行 A 股特化改造。感谢原作者的出色工作和 Apache 2.0 开源精神。
+本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 开源项目，经由 [simonlin1212/tradingagents-astock](https://github.com/simonlin1212/tradingagents-astock) 的 A 股特化改造后进一步迭代。感谢两位作者的出色工作和 Apache 2.0 开源精神。
 
 **原始论文**：[TradingAgents: Multi-Agents LLM Financial Trading Framework](https://arxiv.org/abs/2412.20138)
 
