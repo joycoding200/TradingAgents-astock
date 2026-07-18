@@ -62,3 +62,18 @@ def test_plain_conclusion_translates_labels_ratings_and_jargon():
     assert "市盈率" in result
     assert "价格走势指标" in result
     assert "资金流向" in result
+
+
+def test_plain_conclusion_explains_common_a_share_terms_from_live_output():
+    text = "五十日均线、毛利率、现金流、高开低走、缩量回踩后企稳，不要满仓。"
+
+    result = make_conclusion_plain(text)
+
+    assert "近50个交易日的平均价格" in result
+    assert "卖货后能留下的钱占比" in result
+    assert "公司手头现金进出情况" in result
+    assert "开盘涨、收盘跌" in result
+    assert "成交量变小" in result
+    assert "价格回落再试探" in result
+    assert "不再继续下跌并站稳" in result
+    assert "把大部分钱都投进去" in result
