@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+import hashlib
+import json
 from typing import Any, Iterable
 
 
@@ -21,6 +23,27 @@ _STATUS_LABELS = {
     STATUS_NORMAL_EMPTY: "正常空结果",
     STATUS_FAILED: "失败",
     STATUS_INVALID_INPUT: "输入无效",
+}
+
+# 台账在网页中展示，工具的内部英文名不能直接暴露给普通用户。
+_TOOL_LABELS = {
+    "get_stock_data": "股价和成交量",
+    "get_indicators": "技术指标",
+    "get_fundamentals": "公司基本情况",
+    "get_balance_sheet": "资产负债情况",
+    "get_cashflow": "现金流情况",
+    "get_income_statement": "利润情况",
+    "get_news": "相关新闻",
+    "get_fund_flow": "资金流向",
+    "get_industry_comparison": "所属行业情况",
+    "get_northbound_flow": "外资流向",
+    "get_profit_forecast": "机构预期",
+    "get_hot_stocks": "市场热门股",
+    "get_concept_blocks": "概念板块",
+    "get_dragon_tiger_board": "龙虎榜",
+    "get_lockup_expiry": "限售股解禁",
+    "get_insider_transactions": "股东交易",
+    "get_global_news": "市场新闻",
 }
 
 # 这些工具提供价格、财务、新闻与资金等直接影响结论的基础数据。任何一个最终失败，都必须
@@ -70,6 +93,22 @@ def _text(value: Any) -> str:
     return str(value or "")
 
 
+def _request_key(call: dict[str, Any]) -> str:
+    """同一工具、同一参数的重试共用键；只存不可逆摘要，不存参数正文。"""
+    raw = json.dumps(
+        {"tool_name": str(call.get("name", "unknown_tool")), "args": call.get("args", {})},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _tool_label(tool_name: str) -> str:
+    return _TOOL_LABELS.get(tool_name, "数据工具")
+
+
 def classify_tool_result(content: Any, message_status: str | None = None) -> str:
     """将工具结果归为成功、正常空结果、失败或输入无效。"""
     text = _text(content).strip()
@@ -108,6 +147,7 @@ def build_tool_ledger(
                 "status": status,
                 "critical": tool_name in CRITICAL_TOOLS,
                 "tool_call_id": call_id,
+                "request_key": _request_key(call),
                 "recorded_at": recorded_at,
             }
         )
@@ -132,14 +172,15 @@ def create_tracked_tool_node(analyst: str, tools: list[Any]):
 
 
 def summarize_tool_ledger(ledger: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    """按工具的最后一次调用汇总，成功重试可覆盖之前的临时失败。"""
+    """按相同请求的最后一次调用汇总，成功重试可覆盖之前的临时失败。"""
     entries = list(ledger or [])
-    latest_by_tool: dict[str, dict[str, Any]] = {}
+    latest_by_request: dict[str, dict[str, Any]] = {}
     for entry in entries:
-        name = str(entry.get("tool_name", "unknown_tool"))
-        latest_by_tool[name] = entry
+        # 兼容 v0.2.23 已持久化的旧台账；旧记录没有请求摘要时按工具名汇总。
+        request_key = str(entry.get("request_key") or entry.get("tool_name", "unknown_tool"))
+        latest_by_request[request_key] = entry
 
-    latest = list(latest_by_tool.values())
+    latest = list(latest_by_request.values())
     failed_critical = sorted(
         entry["tool_name"]
         for entry in latest
@@ -199,5 +240,5 @@ def format_tool_ledger_summary(summary: dict[str, Any]) -> str:
     for entry in sorted(summary["latest"], key=lambda item: item["tool_name"]):
         importance = "关键" if entry.get("critical") else "一般"
         status = _STATUS_LABELS.get(entry.get("status"), "未知")
-        lines.append(f"{entry['tool_name']} | {status} | {importance}")
+        lines.append(f"{_tool_label(entry['tool_name'])} | {status} | {importance}")
     return "\n".join(lines)

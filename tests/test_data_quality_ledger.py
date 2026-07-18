@@ -39,6 +39,7 @@ def test_tool_ledger_classifies_success_normal_empty_and_failure():
         STATUS_FAILED,
     ]
     assert all("content" not in entry for entry in ledger)
+    assert all(len(entry["request_key"]) == 16 for entry in ledger)
     assert ledger[2]["critical"] is True
 
 
@@ -67,26 +68,35 @@ def test_tracked_tool_node_records_real_toolnode_output():
     })
 
     assert result["messages"][-1].content.startswith("日期")
-    assert result["tool_execution_ledger"] == [{
-        "tool_name": "get_stock_data",
-        "analyst": "market",
-        "status": STATUS_SUCCESS,
-        "critical": True,
-        "tool_call_id": "call-1",
-        "recorded_at": result["tool_execution_ledger"][0]["recorded_at"],
-    }]
+    ledger = result["tool_execution_ledger"]
+    assert ledger[0]["tool_name"] == "get_stock_data"
+    assert ledger[0]["analyst"] == "market"
+    assert ledger[0]["status"] == STATUS_SUCCESS
+    assert ledger[0]["critical"] is True
+    assert ledger[0]["tool_call_id"] == "call-1"
+    assert len(ledger[0]["request_key"]) == 16
 
 
 def test_ledger_latest_success_overrides_a_retried_failure():
     ledger = [
-        {"tool_name": "get_fund_flow", "status": STATUS_FAILED, "critical": True},
-        {"tool_name": "get_fund_flow", "status": STATUS_SUCCESS, "critical": True},
+        {"tool_name": "get_fund_flow", "status": STATUS_FAILED, "critical": True, "request_key": "same-request"},
+        {"tool_name": "get_fund_flow", "status": STATUS_SUCCESS, "critical": True, "request_key": "same-request"},
     ]
 
     summary = summarize_tool_ledger(ledger)
 
     assert summary["confidence"] == "高"
     assert summary["failed_critical"] == []
+
+
+def test_ledger_different_requests_do_not_hide_a_critical_failure():
+    summary = summarize_tool_ledger([
+        {"tool_name": "get_news", "status": STATUS_FAILED, "critical": True, "request_key": "news-a"},
+        {"tool_name": "get_news", "status": STATUS_SUCCESS, "critical": True, "request_key": "news-b"},
+    ])
+
+    assert summary["confidence"] == "低"
+    assert summary["failed_critical"] == ["get_news"]
 
 
 def test_ledger_critical_failure_caps_confidence_and_is_auditable():
@@ -99,7 +109,7 @@ def test_ledger_critical_failure_caps_confidence_and_is_auditable():
 
     assert summary["confidence"] == "低"
     assert summary["failed_critical"] == ["get_stock_data"]
-    assert "get_stock_data | 失败 | 关键" in text
+    assert "股价和成交量 | 失败 | 关键" in text
 
 
 def test_quality_gate_uses_ledger_as_code_enforced_low_confidence_cap():
@@ -124,7 +134,7 @@ def test_quality_gate_uses_ledger_as_code_enforced_low_confidence_cap():
 
     assert result["data_quality_status"] == "低"
     assert "代码层限制：关键数据接口失败" in result["data_quality_summary"]
-    assert "get_stock_data | 失败 | 关键" in result["data_quality_summary"]
+    assert "股价和成交量 | 失败 | 关键" in result["data_quality_summary"]
 
 
 def test_low_confidence_final_decision_gets_code_enforced_notice():
