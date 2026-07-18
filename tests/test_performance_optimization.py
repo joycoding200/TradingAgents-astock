@@ -6,6 +6,7 @@ import threading
 import time
 from typing import Annotated
 import operator
+import json
 
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
@@ -181,6 +182,35 @@ def test_fast_quality_gate_reviews_only_enabled_reports():
     assert result["data_quality_status"] == "高"
     assert "快速分析" in result["data_quality_summary"]
     assert "不得声称已全面核验" in result["data_quality_constraints"]
+
+
+def test_fast_mode_is_saved_in_history_and_markdown(tmp_path, monkeypatch):
+    from web import history
+    from web.pdf_export import generate_markdown
+
+    logs = tmp_path / "logs"
+    log_dir = logs / "600879" / "TradingAgentsStrategy_logs"
+    log_dir.mkdir(parents=True)
+    saved_state = {
+        "analysis_mode": "fast",
+        "data_quality_status": "低",
+        "data_quality_summary": "",
+        "final_trade_decision": "",
+    }
+    log_path = log_dir / "full_states_log_2026-07-17.json"
+    log_path.write_text(json.dumps(saved_state), encoding="utf-8")
+    monkeypatch.setattr(history, "_results_dir", lambda: logs)
+    monkeypatch.setattr(
+        "web.pdf_export.stock_display_label", lambda ticker, state: ticker
+    )
+
+    entries = history.get_history(include_mode=True)
+    markdown = generate_markdown(
+        saved_state, "600879", "2026-07-17", "DataIncomplete"
+    )
+
+    assert entries[0]["analysis_mode"] == "fast"
+    assert "快速分析（覆盖范围较少）" in markdown
 
 
 def test_selected_analyst_branches_start_in_parallel_and_join(monkeypatch):
