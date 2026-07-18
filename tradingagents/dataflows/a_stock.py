@@ -31,6 +31,7 @@ import urllib.request
 
 import pandas as pd
 import requests as _requests
+from pypinyin import Style, lazy_pinyin
 
 from .utils import safe_ticker_component
 
@@ -116,7 +117,7 @@ def _build_name_code_map() -> tuple[dict[str, str], dict[str, str]]:
 def resolve_ticker(user_input: str) -> str:
     """Resolve user input (code or Chinese name) to a 6-digit A-stock code.
 
-    Accepts: '600379', 'SH600379', '600379.SH', '宝光股份'
+    Accepts: '600379', 'SH600379', '600379.SH', '宝光股份', 'bggf'
     Returns: '600379'
     Raises: ValueError if not resolvable.
     """
@@ -127,7 +128,36 @@ def resolve_ticker(user_input: str) -> str:
     has_chinese = any("一" <= ch <= "鿿" for ch in s)
 
     if not has_chinese:
-        return _normalize_ticker(s)
+        normalized = _normalize_ticker(s)
+        # Codes (including exchange-qualified forms) stay on the fast path and
+        # never need the relatively expensive full-market name lookup.
+        if _re.fullmatch(r"\d{6}", normalized):
+            return normalized
+
+        # Web users commonly type the first letters of a Chinese stock name,
+        # for example "gzmt" for 贵州茅台.  Only plain letters are treated as
+        # shorthand; punctuation-bearing foreign symbols retain the previous
+        # normalization behaviour.
+        shorthand = _re.sub(r"[^a-z0-9]", "", s.lower())
+        if shorthand and shorthand.isalpha():
+            n2c, _ = _build_name_code_map()
+            matches = [
+                (name, code)
+                for name, code in n2c.items()
+                if _stock_name_initials(name) == shorthand
+            ]
+            if len(matches) == 1:
+                return matches[0][1]
+            if len(matches) > 1:
+                examples = ", ".join(f"{name}({code})" for name, code in matches[:5])
+                raise ValueError(
+                    f"简拼 '{s}' 匹配到多只股票：{examples}。请输入完整名称或 6 位代码。"
+                )
+            # Keep the historical behaviour for non-A-share symbols such as
+            # SPY.  The Web A-share entry point validates that its final
+            # result is a six-digit code and can give a focused user error.
+            return normalized
+        return normalized
 
     clean = s.replace(" ", "").replace("　", "")
     n2c, _ = _build_name_code_map()
@@ -149,6 +179,22 @@ def resolve_ticker(user_input: str) -> str:
         f"或完整股票名称（如 '贵州茅台'）；行业/概念/板块名（如 '游戏'）不是"
         f"有效的股票标识。请改用目标个股的 6 位股票代码重试。"
     )
+
+
+def _stock_name_initials(name: str) -> str:
+    """Return lowercase pinyin initials for an A-share display name.
+
+    Existing Latin markers such as ``ST`` are retained, so ``ST三房`` maps
+    naturally to ``stsf``.  Punctuation and spaces are ignored.
+    """
+    initials = "".join(
+        lazy_pinyin(
+            name,
+            style=Style.FIRST_LETTER,
+            errors=lambda chars: list(chars),
+        )
+    ).lower()
+    return _re.sub(r"[^a-z0-9]", "", initials)
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ from typing import Any
 import streamlit as st
 
 from web.pdf_export import generate_markdown, generate_pdf
+from web.plain_language import make_conclusion_plain
 from web.stock_display import normalize_stock_mentions, stock_display_label
 
 
@@ -72,9 +73,9 @@ def render_report(
             text-align: center;
             margin: 1rem 0 2rem;
         ">
-            <div style="font-size:0.9rem; color:#888; letter-spacing:2px;">TRADING SIGNAL</div>
+            <div style="font-size:0.9rem; color:#888; letter-spacing:2px;">分析结论</div>
             <div style="font-size:3.5rem; font-weight:900; color:{color}; margin:0.3rem 0;">
-                {signal.upper()}
+                {cn_signal}
             </div>
             <div style="font-size:1.2rem; color:#f5f1eb;">
                 {ticker_label} · {trade_date}
@@ -119,11 +120,19 @@ def render_report(
 
     st.markdown("---")
 
+    final_decision = final_state.get("final_trade_decision", "")
     inv_plan = final_state.get("investment_plan", "")
-    if inv_plan:
-        st.markdown("### 👔 最终投资建议")
-        st.markdown(_display_report_text(inv_plan, ticker, final_state))
+    conclusion = final_decision or inv_plan
+    if conclusion:
+        st.markdown("### 👔 一眼看懂的结论")
+        displayed = _display_report_text(conclusion, ticker, final_state)
+        st.markdown(make_conclusion_plain(displayed))
         st.markdown("---")
+
+    if final_decision and inv_plan:
+        with st.expander("查看研究阶段的建议", expanded=False):
+            displayed = _display_report_text(inv_plan, ticker, final_state)
+            st.markdown(make_conclusion_plain(displayed))
 
     st.markdown("### 📊 分析师报告")
 

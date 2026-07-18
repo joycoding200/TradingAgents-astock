@@ -10,6 +10,11 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ### 新增
 - **可配置 Alpha 基准（reflection 层）**：`DEFAULT_CONFIG` 新增 `benchmark_ticker`（显式覆盖，支持 `TRADINGAGENTS_BENCHMARK_TICKER` env）和 `benchmark_map`（交易所→基准映射）。沪市 6 位代码（600/601/603/605/688）自动对上证综指（000001.SS），深市（000/001/002/003/300/301）自动对深证成指（399001.SZ），兜底 CSI 300。同步自上游 v0.3.1 `78d063d` + `c93b92c`。`TradingAgentsGraph` 新增 `_detect_exchange()` / `_resolve_benchmark()`；`Reflector.reflect_on_final_decision()` 新增 `benchmark_name` 参数；reflection prompt 标签从硬编码 "CSI 300" 改为可配置。
+- **股票名称简拼输入**：Web 输入支持 6 位代码、中文名称和拼音首字母（如 `600519` / `贵州茅台` / `gzmt`）；重名简拼会列出候选并要求补全。新增轻量依赖 `pypinyin`，阿里云更新需执行 `bash scripts/update-server.sh --build`。
+
+### 改进
+- **Web 键盘直输**：进入分析页后股票输入框自动获得焦点，无需先用鼠标点击。
+- **通俗中文结论**：结果页优先展示最终风控决策，信号、固定标题和常见英文金融缩写转成通俗中文；中文生成提示明确面向普通 A 股股民，要求短句、少术语、对必要概念随文解释。内部评级格式保持不变，兼容信号解析、断点和历史报告。
 
 ## [0.2.22] - 2026-07-15
 

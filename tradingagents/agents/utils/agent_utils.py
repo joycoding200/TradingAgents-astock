@@ -41,6 +41,12 @@ def get_language_instruction() -> str:
     lang = get_config().get("output_language", "English")
     if lang.strip().lower() == "english":
         return ""
+    if lang.strip().lower() in {"chinese", "中文", "simplified chinese"}:
+        return (
+            " 请全部使用简体中文。面向没有金融知识的普通A股股民，用短句和日常用语，"
+            "直接说明可以买、先等等还是应卖出，以及主要原因和风险。不要使用英文标题、"
+            "英文缩写或生僻金融术语；确实绕不开的概念，要紧跟一句通俗解释。"
+        )
     return f" Write your entire response in {lang}."
 
 

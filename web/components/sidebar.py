@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import date
 import os
+import re
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.checkpointer import clear_checkpoint
@@ -38,13 +40,18 @@ _PROVIDER_KEYS = [key for _, key in _PROVIDERS]
 def _resolve_user_input(raw: str) -> tuple[str, str | None]:
     """Resolve raw user input to (ticker_code, error_msg).
 
-    Accepts 6-digit codes or Chinese stock names (e.g. '宝光股份').
+    Accepts 6-digit codes, Chinese names, or pinyin initials (e.g. 'bggf').
     Returns (code, None) on success or ("", error_msg) on failure.
     """
     from tradingagents.dataflows.a_stock import resolve_ticker
 
     try:
         code = resolve_ticker(raw)
+        if not re.fullmatch(r"\d{6}", code):
+            return "", (
+                f"找不到简拼为 '{raw.strip()}' 的股票。请输入股票名称、名称简拼"
+                "（如 gzmt）或 6 位 A 股代码（如 600519）。"
+            )
         return code, None
     except ValueError as e:
         return "", str(e)
@@ -227,11 +234,37 @@ def render_sidebar() -> None:
     st.markdown("#### 新建分析")
 
     ticker = st.text_input(
-        "股票代码",
-        placeholder="例: 300750 或 宁德时代",
+        "股票代码或名称",
+        placeholder="直接输入：300750、宁德时代或宁德时代简拼 ndsd",
         key="input_ticker",
-        help="输入6位A股代码或中文股票全称",
+        help="支持6位A股代码、中文股票名称或名称简拼，如 600519、贵州茅台、gzmt",
     )
+
+    # Streamlit currently has no autofocus option for text_input.  On the
+    # first render of a session, focus the stock box from a tiny same-origin
+    # component so users can type immediately without reaching for the mouse.
+    if not st.session_state.get("stock_input_autofocused"):
+        components.html(
+            """
+            <script>
+            (function focusStockInput(attempts) {
+              const inputs = window.parent.document.querySelectorAll(
+                'section[data-testid="stSidebar"] input[type="text"]'
+              );
+              if (inputs.length) {
+                inputs[0].focus();
+                return;
+              }
+              if (attempts > 0) {
+                setTimeout(() => focusStockInput(attempts - 1), 100);
+              }
+            })(20);
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+        st.session_state["stock_input_autofocused"] = True
 
     trade_date = st.date_input(
         "分析日期",
