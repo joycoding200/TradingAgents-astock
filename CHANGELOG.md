@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.23] - 2026-07-18
+
+### Added
+
+- 数据工具调用台账：记录每次工具调用的成功、正常空结果、失败或输入无效状态；不保存底层错误正文。
+- 数据质量门控读取台账并按工具最终状态汇总，关键工具失败或未调用任何数据工具时将结论可信度限制为“低”。
+- 最终结论在低可信度时由代码强制加注“数据不全”提示；台账、门控摘要和可信度状态一并持久化到结果 JSON。
+
 All notable changes to TradingAgents are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

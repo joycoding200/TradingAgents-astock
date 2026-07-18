@@ -1,5 +1,10 @@
 from typing import Annotated
 
+from tradingagents.agents.quality_ledger import (
+    format_tool_ledger_summary,
+    summarize_tool_ledger,
+)
+
 REPORT_FIELDS = {
     "market": "market_report",
     "social": "sentiment_report",
@@ -69,7 +74,11 @@ def _hard_check_report(analyst_type: str, report: str) -> tuple:
 
 
 def _build_review_prompt(
-    reports: dict, hard_results: dict, trade_date: str, ticker: str
+    reports: dict,
+    hard_results: dict,
+    trade_date: str,
+    ticker: str,
+    tool_ledger_summary: str = "",
 ) -> str:
     """Build the LLM review prompt.
 
@@ -98,6 +107,9 @@ def _build_review_prompt(
 
 ## 硬检查结果（代码层客观事实，供参考，非最终评级）
 {hard_summary}
+
+## 数据接口调用台账（代码层客观事实，优先级高于报告措辞）
+{tool_ledger_summary or "未提供台账"}
 
 ---
 
@@ -135,6 +147,7 @@ def _build_review_prompt(
 重要：硬检查已列出各分析师的客观缺失清单。请判断每处缺失是否属于**必采关键项**：
 - 若缺失的是非必采项（系统未提供接口的特殊风险项、或正常空结果如"近30日未上龙虎榜"），不应据此降级
 - 若你的评级与硬检查 grade 不一致，需在备注说明理由
+- 若台账列出“关键数据失败”，整体数据可信度不得评为“高”；结论只能作为有限参考，必须提示数据不全
 """
 
 
@@ -165,6 +178,9 @@ def create_quality_gate(llm):
             hard_summary_lines.append(f"- {name}: [{grade}] {detail}")
         hard_summary = "\n".join(hard_summary_lines)
 
+        tool_summary = summarize_tool_ledger(state.get("tool_execution_ledger", []))
+        tool_ledger_text = format_tool_ledger_summary(tool_summary)
+
         fail_count = sum(
             1 for _, (g, _) in hard_results.items() if g in ("F", "D")
         )
@@ -173,12 +189,25 @@ def create_quality_gate(llm):
         if fail_count < 4:
             try:
                 review_prompt = _build_review_prompt(
-                    reports, hard_results, trade_date, ticker
+                    reports, hard_results, trade_date, ticker, tool_ledger_text
                 )
                 response = llm.invoke(review_prompt)
                 llm_review = response.content
             except Exception as e:
-                llm_review = f"（LLM 复审失败: {type(e).__name__}: {e}）"
+                llm_review = f"（LLM 复审失败: {type(e).__name__}）"
+
+        confidence = tool_summary["confidence"]
+        confidence_constraint = ""
+        if confidence == "低":
+            confidence_constraint = (
+                "\n> **代码层限制：关键数据接口失败或未调用任何数据工具。**"
+                "本次结论可信度已被限制为“低”，不得据此直接买卖。\n"
+            )
+        elif confidence == "中":
+            confidence_constraint = (
+                "\n> **代码层提示：存在非关键数据失败或工具输入无效。**"
+                "结论可信度上限为“中”，请结合其他信息判断。\n"
+            )
 
         summary = (
             f"## 数据质量门控结果\n\n"
@@ -186,11 +215,16 @@ def create_quality_gate(llm):
             f"> 硬检查为代码层客观事实清单（长度/表格/失败标记/缺失项计数），"
             f"LLM 复审为最终评级（综合缺失项是否必采关键）。v0.2.22 起硬检查不再"
             f"机械因 `[数据缺失]` 数量判 C，两层标准统一由 LLM 复审收口。\n\n"
+            f"{tool_ledger_text}\n"
+            f"{confidence_constraint}\n"
             f"### 硬检查结果\n{hard_summary}\n\n"
             f"### LLM 复审（最终评级）\n"
             f"{llm_review if llm_review else '（跳过 — 多数报告未通过硬检查）'}\n"
         )
 
-        return {"data_quality_summary": summary}
+        return {
+            "data_quality_summary": summary,
+            "data_quality_status": confidence,
+        }
 
     return quality_gate_node

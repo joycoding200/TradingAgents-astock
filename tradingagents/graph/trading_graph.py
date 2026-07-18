@@ -11,8 +11,6 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-from langgraph.prebuilt import ToolNode
-
 from tradingagents.llm_clients import create_llm_client
 
 from tradingagents.agents import *
@@ -24,6 +22,7 @@ from tradingagents.agents.utils.agent_states import (
     InvestDebateState,
     RiskDebateState,
 )
+from tradingagents.agents.quality_ledger import create_tracked_tool_node
 from tradingagents.dataflows.config import set_config
 
 # Import the new abstract tool methods from agent_utils
@@ -160,10 +159,10 @@ class TradingAgentsGraph:
 
         return kwargs
 
-    def _create_tool_nodes(self) -> Dict[str, ToolNode]:
-        """Create tool nodes for different data sources using abstract methods."""
+    def _create_tool_nodes(self) -> Dict[str, Any]:
+        """Create tracked tool nodes for different data sources."""
         return {
-            "market": ToolNode(
+            "market": create_tracked_tool_node("market",
                 [
                     # Core stock data tools
                     get_stock_data,
@@ -171,13 +170,13 @@ class TradingAgentsGraph:
                     get_indicators,
                 ]
             ),
-            "social": ToolNode(
+            "social": create_tracked_tool_node("social",
                 [
                     # News tools for social media analysis
                     get_news,
                 ]
             ),
-            "news": ToolNode(
+            "news": create_tracked_tool_node("news",
                 [
                     # News and insider information
                     get_news,
@@ -185,7 +184,7 @@ class TradingAgentsGraph:
                     get_insider_transactions,
                 ]
             ),
-            "fundamentals": ToolNode(
+            "fundamentals": create_tracked_tool_node("fundamentals",
                 [
                     get_fundamentals,
                     get_balance_sheet,
@@ -195,13 +194,13 @@ class TradingAgentsGraph:
                     get_industry_comparison,
                 ]
             ),
-            "policy": ToolNode(
+            "policy": create_tracked_tool_node("policy",
                 [
                     get_news,
                     get_global_news,
                 ]
             ),
-            "hot_money": ToolNode(
+            "hot_money": create_tracked_tool_node("hot_money",
                 [
                     get_stock_data,
                     get_news,
@@ -214,7 +213,7 @@ class TradingAgentsGraph:
                     get_industry_comparison,
                 ]
             ),
-            "lockup": ToolNode(
+            "lockup": create_tracked_tool_node("lockup",
                 [
                     get_insider_transactions,
                     get_news,
@@ -423,6 +422,7 @@ class TradingAgentsGraph:
 
     def finalize_graph_run(self, company_name, trade_date, final_state):
         """Persist a completed run and clear its checkpoint."""
+        self._apply_data_quality_limit(final_state)
         self.curr_state = final_state
 
         # Log state to disk.
@@ -442,6 +442,18 @@ class TradingAgentsGraph:
             )
 
         return self.process_signal(final_state["final_trade_decision"])
+
+    @staticmethod
+    def _apply_data_quality_limit(final_state) -> None:
+        """在关键数据失败时，用代码而非 LLM 自觉性限制最终结论可信度。"""
+        if final_state.get("data_quality_status") != "低":
+            return
+        notice = "⚠️ 数据不全：关键数据没有取到。本次分析只能作参考，不要据此直接买卖。"
+        decision = str(final_state.get("final_trade_decision", "")).strip()
+        if not decision.startswith(notice):
+            final_state["final_trade_decision"] = (
+                f"{notice}\n\n{decision}" if decision else notice
+            )
 
     def close_graph_run(self) -> None:
         """Close the active checkpointer context, if any."""
@@ -484,6 +496,9 @@ class TradingAgentsGraph:
             "policy_report": final_state.get("policy_report", ""),
             "hot_money_report": final_state.get("hot_money_report", ""),
             "lockup_report": final_state.get("lockup_report", ""),
+            "data_quality_summary": final_state.get("data_quality_summary", ""),
+            "data_quality_status": final_state.get("data_quality_status", ""),
+            "tool_execution_ledger": final_state.get("tool_execution_ledger", []),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

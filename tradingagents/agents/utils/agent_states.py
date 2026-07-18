@@ -1,4 +1,5 @@
-from typing import Annotated
+import operator
+from typing import Annotated, Any
 from typing_extensions import TypedDict
 from langgraph.graph import MessagesState
 
@@ -62,6 +63,10 @@ class AgentState(MessagesState):
 
     # data quality gate
     data_quality_summary: Annotated[str, "Quality gate assessment of all analyst reports (hard checks + LLM review)"]
+    data_quality_status: Annotated[str, "Code-enforced confidence cap: 高/中/低"]
+    tool_execution_ledger: Annotated[
+        list[dict[str, Any]], operator.add
+    ]  # 每次工具调用的无敏感状态记录
 
     # researcher team discussion step
     investment_debate_state: Annotated[
