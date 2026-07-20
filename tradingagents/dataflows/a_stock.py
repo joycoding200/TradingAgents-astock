@@ -766,13 +766,76 @@ def _load_ohlcv_astock(symbol: str, curr_date: str) -> pd.DataFrame:
 
 # ---- 1. get_stock_data ----
 
+# Default set of common indicators for merged data+indicators output
+_COMMON_INDICATORS = [
+    "close_10_ema", "close_50_sma", "macd", "macds", "macdh",
+    "rsi", "boll", "boll_ub", "boll_lb", "vwma",
+]
+
+
+def _compute_and_format_indicators(
+    code: str, end_date: str, ind_names: list[str], look_back: int = 60
+) -> str:
+    """Compute technical indicators via stockstats and format as a compact text block.
+
+    Returns an empty string on any failure.
+    """
+    try:
+        from stockstats import wrap
+
+        df = _load_ohlcv_astock(code, end_date)
+        if df is None or df.empty:
+            return ""
+        ind_data = wrap(df)
+        ind_data["Date"] = ind_data["Date"].apply(
+            lambda x: x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else str(x)
+        )
+
+        lines = ["\n\n## Technical Indicators", ""]
+
+        # --- latest-value summary table ---
+        lines.append("| Indicator | Latest | Description |")
+        lines.append("|-----------|--------|-------------|")
+        for name in ind_names:
+            try:
+                latest = ind_data[name].iloc[-1]
+                val = "N/A" if pd.isna(latest) else f"{float(latest):.4f}"
+                desc = _INDICATOR_DESCRIPTIONS.get(name, "")
+                lines.append(f"| {name} | {val} | {desc} |")
+            except Exception:
+                pass
+
+        # --- recent trend (last N rows) ---
+        recent = ind_data.tail(look_back)
+        trend_cols = [c for c in ind_names if c in recent.columns]
+        if trend_cols:
+            lines.append(f"\n### Recent {look_back}-Day Trend")
+            lines.append(
+                recent[["Date"] + trend_cols]
+                .round(4)
+                .to_csv(index=False)
+                .strip()
+            )
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.warning("Indicator computation failed for %s: %s", code, exc)
+        return ""
+
 
 def get_stock_data(
     symbol: Annotated[str, "A-stock code (e.g. 688017, SH688017)"],
     start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
     end_date: Annotated[str, "End date in yyyy-mm-dd format"],
+    indicators: Annotated[
+        str,
+        "Optional: compute technical indicators together with price data. "
+        "Use 'all' for common indicators (close_10_ema, close_50_sma, macd, "
+        "macds, macdh, rsi, boll, boll_ub, boll_lb, vwma), or a comma-separated "
+        "list: close_50_sma, close_200_sma, close_10_ema, macd, macds, macdh, "
+        "rsi, boll, boll_ub, boll_lb, atr, vwma, mfi",
+    ] = "",
 ) -> str:
-    """Get OHLCV stock price data via mootdx."""
+    """Get OHLCV stock price data via mootdx, with optional technical indicators."""
     code = _normalize_ticker(symbol)
 
     data_source = "mootdx (TCP)"
@@ -844,7 +907,21 @@ def get_stock_data(
         f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     )
 
-    return header + csv_out
+    result = header + csv_out
+
+    # Append technical indicators when requested
+    if indicators and indicators.strip():
+        ind_str = indicators.strip().lower()
+        if ind_str == "all":
+            ind_names = _COMMON_INDICATORS
+        else:
+            ind_names = [n.strip() for n in ind_str.split(",")]
+
+        ind_block = _compute_and_format_indicators(code, end_date, ind_names)
+        if ind_block:
+            result += ind_block
+
+    return result
 
 
 # ---- 2. get_indicators ----
@@ -1509,9 +1586,9 @@ def get_global_news(
 
     # Source 1: CLS wire (财联社快讯) — direct HTTP
     try:
-        cls_url = "https://www.cls.cn/nodeapi/telegraphList"
-        cls_params = {"rn": str(limit), "page": "1"}
-        cls_headers = {"User-Agent": _UA, "Referer": "https://www.cls.cn/"}
+        cls_url = "https://www.cls.cn/api/cache"
+        cls_params = {"name": "telegraph", "rn": str(limit)}
+        cls_headers = {"User-Agent": _UA, "Referer": "https://www.cls.cn/telegraph"}
         r_cls = _requests.get(cls_url, params=cls_params, headers=cls_headers, timeout=10)
         d_cls = r_cls.json()
         for item in d_cls.get("data", {}).get("roll_data", []):

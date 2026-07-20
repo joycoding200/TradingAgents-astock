@@ -1,7 +1,6 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
-    get_indicators,
     get_language_instruction,
     get_stock_data,
 )
@@ -16,7 +15,6 @@ def create_market_analyst(llm):
 
         tools = [
             get_stock_data,
-            get_indicators,
         ]
 
         system_message = (
@@ -29,35 +27,24 @@ def create_market_analyst(llm):
 - **换手率**：A 股散户占比高，换手率是判断资金活跃度和筹码松动的关键指标。
 - **量价关系**：A 股「量在价先」规律显著，放量突破和缩量回调是核心交易信号。
 
-可选技术指标（调用 get_indicators 时必须使用下列英文标识符作为参数名）：
+可用技术指标（调用 get_stock_data 时设 indicators="all" 一次性返回，无需单独调用 get_indicators）：
 
-均线类 (Moving Averages)：
-- close_50_sma：50 日简单均线 - 中期趋势方向判断，动态支撑/阻力位。滞后性较强，需配合短期指标。
-- close_200_sma：200 日简单均线 - 长期趋势基准，金叉/死叉战略信号。反应缓慢，适合趋势确认。
-- close_10_ema：10 日指数均线 - 短期动量快速捕捉，适合活跃交易。震荡市噪音多，需配合长均线过滤。
-
-MACD 类：
-- macd：MACD 主线 - 趋势动量的核心信号，关注交叉与背离。横盘市需配合其他指标确认。
-- macds：MACD 信号线 - 与主线交叉触发交易信号。单独使用易产生假信号。
-- macdh：MACD 柱状图 - 动量强度可视化，提前发现顶/底背离。波动较大，需配合趋势过滤。
-
-动量类 (Momentum)：
-- rsi：RSI 相对强弱指标 - 超买(>70)/超卖(<30)判断。注意：A 股强势股 RSI 可长期维持在 60-80 区间，不能机械套用阈值。
-
-波动率类 (Volatility)：
-- boll：布林带中轨 - 20 日均线基准，价格运动的中枢参考。
-- boll_ub：布林带上轨 - 价格触及时为潜在超买/突破信号。强趋势中价格可能沿上轨运行。
-- boll_lb：布林带下轨 - 价格触及时为潜在超卖信号。需配合其他指标确认是否真正见底。
-- atr：ATR 平均真实波幅 - 衡量波动率，用于动态止损和仓位管理。
-
-成交量类 (Volume)：
-- vwma：成交量加权均线 - 结合量价验证趋势的可靠性。注意异常放量可能扭曲结果。
+常用指标（indicators="all" 一次性返回）：
+- close_10_ema：10 日指数均线 - 短期动量快速捕捉
+- close_50_sma：50 日简单均线 - 中期趋势方向判断
+- macd/macds/macdh：MACD 趋势动量核心信号
+- rsi：RSI 相对强弱指标 - 超买(>70)/超卖(<30)判断
+- boll/boll_ub/boll_lb：布林带 - 波动率与支撑/阻力
+- vwma：成交量加权均线 - 量价验证
 
 操作要求：
-1. **必须**先调用 get_stock_data 获取 K 线数据
-2. 再调用 get_indicators 获取选定指标（参数名使用上述英文标识符，否则调用会失败）
-3. 撰写详细的技术分析报告，包含具体数值和技术信号研判结论（仅供研究参考，不构成投资建议）
-4. 报告末尾附 Markdown 表格汇总关键技术信号和结论
+1. **关键优化**：调用 get_stock_data 时设置 indicators="all"，一次性获取 K 线数据和所有常用技术指标，无需再单独调用 get_indicators
+2. 撰写详细的技术分析报告，包含具体数值和技术信号研判结论（仅供研究参考，不构成投资建议）
+3. 报告末尾附 Markdown 表格汇总关键技术信号和结论
+
+⚠️ 重要约束：
+- **禁止为股票编造别名/曾用名**：上下文已提供准确的股票名称，只使用该名称，不得自行添加括号别名或曾用名
+- **禁止凭空捏造数据**：所有指标数值必须来自工具返回的数据，不得自行估算
 
 📋 必采清单 — 以下数据点必须出现在报告中，无法获取时标注 [数据缺失: xxx]：
 1. 最新收盘价、日期、当日涨跌幅
