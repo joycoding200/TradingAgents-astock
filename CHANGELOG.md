@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.28] - 2026-07-20
+
+### 新增
+- **可配置 Alpha 基准（reflection 层）**：`DEFAULT_CONFIG` 新增 `benchmark_ticker` 和 `benchmark_map`。
+- **股票名称简拼输入**：Web 输入支持 6 位代码、中文名称和拼音首字母。新增 `pypinyin` 依赖。
+
+### 改进
+- **Web 键盘直输**：进入分析页后股票输入框自动获得焦点。
+- **通俗中文结论**：结果页优先展示最终风控决策，英文标题和术语转成通俗中文。
+- **市场分析师性能优化**：`get_stock_data` 新增 `indicators` 参数，`indicators="all"` 一次性返回 OHLCV + 常用技术指标。市场分析师从 10+ 次工具调用降至 1 次。
+- **中文评级解析**：`parse_rating()` 新增中文评级映射（买入/增持/持有/减持/卖出），消除中文模式下抬头信号与正文评级矛盾。
+
+### 修复
+- **CLS 新闻端点下线**：财联社接口 `nodeapi/telegraphList` 返回 404，迁移至 `api/cache?name=telegraph`。
+- **别名幻觉**：市场分析师 prompt 增加「禁止为股票编造别名/曾用名」约束。
+- **政策分析师必采项松弛**：宏观/监管/地方政策 3 项从「必采」改为「尽力采集」。详见 `PLAN_v0.3.0_implementation.md`。
+- **`@tool` 缺 `indicators` 参数**：`core_stock_tools.py` 补上参数，使性能优化真正生效。
+
+### 移除
+- 市场分析师工具列表中移除 `get_indicators`（已被 `get_stock_data(indicators="all")` 取代）。
+
 ## [0.2.27] - 2026-07-18
 
 ### Added
@@ -55,27 +76,7 @@ Breaking changes within the 0.x line are called out explicitly.
 ## [Unreleased]
 
 ### 计划
-- 政策分析师数据覆盖增强（见 `PLAN_v0.3.0.md`）
-
-## [0.2.28] - 2026-07-20
-
-### 新增
-- **可配置 Alpha 基准（reflection 层）**：`DEFAULT_CONFIG` 新增 `benchmark_ticker`（显式覆盖，支持 `TRADINGAGENTS_BENCHMARK_TICKER` env）和 `benchmark_map`（交易所→基准映射）。沪市 6 位代码（600/601/603/605/688）自动对上证综指（000001.SS），深市（000/001/002/003/300/301）自动对深证成指（399001.SZ），兜底 CSI 300。同步自上游 v0.3.1。
-- **股票名称简拼输入**：Web 输入支持 6 位代码、中文名称和拼音首字母（如 `600519` / `贵州茅台` / `gzmt`）；重名简拼会列出候选并要求补全。新增轻量依赖 `pypinyin`。
-
-### 改进
-- **Web 键盘直输**：进入分析页后股票输入框自动获得焦点，无需先用鼠标点击。
-- **通俗中文结论**：结果页优先展示最终风控决策，信号、固定标题和常见英文金融缩写转成通俗中文。
-- **市场分析师性能优化**：`get_stock_data` 新增 `indicators` 参数，支持 `indicators="all"` 一次性返回 OHLCV 数据 + 常用技术指标（均线/MACD/RSI/布林带）。市场分析师从 10+ 次工具调用降至 1 次，预期耗时缩短约 60%。
-- **中文评级解析**：`parse_rating()` 新增中文评级映射（买入/增持/持有/减持/卖出 → Buy/Overweight/Hold/Underweight/Sell），消除中文输出模式下抬头信号与正文评级不一致的矛盾。
-
-### 修复
-- **CLS 新闻端点下线**：财联社接口 `nodeapi/telegraphList` 返回 404，迁移至 `api/cache?name=telegraph`。
-- **别名幻觉**：市场分析师 prompt 增加「禁止为股票编造别名/曾用名」约束，消除 `300131（世纪瑞尔）` 类错误输出。
-- **政策分析师必采项松弛**：宏观/监管/地方政策 3 项从「必采」改为「尽力采集」（系统无对应接口），减少不必要的 `[数据缺失]` 标记。详见 `PLAN_v0.3.0.md`。
-
-### 移除
-- 市场分析师工具列表中移除 `get_indicators`（已被 `get_stock_data(indicators="all")` 取代）。
+- 政策分析师数据覆盖增强（见 `PLAN_v0.3.0_implementation.md`）
 
 ## [0.2.22] - 2026-07-15
 
