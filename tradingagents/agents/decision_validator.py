@@ -5,9 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from tradingagents.agents.utils.rating import parse_rating
-
-
 _RATING_LABELS = {
     "Buy": "买入",
     "Overweight": "偏向买入",
@@ -111,10 +108,6 @@ def validate_final_decision(state: dict[str, Any]) -> dict[str, Any]:
         _canonical_rating(match.group(1))
         for match in _EXPLICIT_RATING_RE.finditer(text)
     }
-    parsed_rating = parse_rating(text, default="")
-    if parsed_rating:
-        explicit_ratings.add(parsed_rating)
-
     if len(explicit_ratings) != 1:
         return {
             "decision_validation_status": "blocked_conflict",
