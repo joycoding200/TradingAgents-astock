@@ -44,6 +44,16 @@ def _detect_completed_stages(
     tracker: ProgressTracker,
 ) -> None:
     """Check the streamed chunk for newly completed stages."""
+    snapshot = chunk.get("data_snapshot")
+    if snapshot and tracker.stage_status("data_snapshot") != "done":
+        counts = snapshot.get("status_counts", {}) if isinstance(snapshot, dict) else {}
+        summary = (
+            f"已按代码计划采集 {snapshot.get('request_count', 0)} 项数据；"
+            f"成功 {counts.get('success', 0)} 项，正常无记录 "
+            f"{counts.get('normal_empty', 0)} 项，失败 {counts.get('failed', 0)} 项。"
+        )
+        tracker.mark_stage_done("data_snapshot", summary)
+
     for report_key in _ANALYST_REPORT_KEYS:
         stage_id = _REPORT_KEY_TO_STAGE[report_key]
         content = chunk.get(report_key, "")
@@ -178,7 +188,7 @@ def run_analysis_in_thread(
     tracker.trade_date = trade_date
     tracker.analysis_mode = str(config.get("analysis_mode", "full"))
     tracker.is_running = True
-    tracker.mark_stage_active("market")
+    tracker.mark_stage_active("data_snapshot")
     record_incomplete_task(
         ticker,
         trade_date,

@@ -9,10 +9,11 @@ import streamlit as st
 
 from web.pdf_export import generate_markdown, generate_pdf
 from web.plain_language import make_conclusion_plain
+from web.quality_display import report_trust_display
 from web.report_safety import (
-    DATA_INCOMPLETE_NOTICE,
     display_signal,
     is_data_limited,
+    limitation_notice,
 )
 from web.stock_display import normalize_stock_mentions, stock_display_label
 
@@ -24,7 +25,9 @@ def _strip_think(text: str) -> str:
 def _signal_style(signal: str) -> tuple[str, str]:
     s = signal.upper()
     if "DATAINCOMPLETE" in s:
-        return "#f97316", "数据不完整"
+        return "#f97316", "关键数据缺失"
+    if "DECISIONINVALID" in s:
+        return "#ef4444", "结论校验失败"
     if "OVERWEIGHT" in s:
         return "#22c55e", "偏向买入"
     if "UNDERWEIGHT" in s:
@@ -47,6 +50,7 @@ _ANALYST_SECTIONS = [
 ]
 
 _STAGE_LABELS = {
+    "data_snapshot": "统一采集数据",
     "market": "技术分析",
     "social": "情绪分析",
     "news": "新闻分析",
@@ -98,6 +102,42 @@ def _render_performance(final_state: dict[str, Any]) -> None:
         )
 
 
+def _render_data_snapshot(final_state: dict[str, Any]) -> None:
+    snapshot = final_state.get("data_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot:
+        return
+    status_labels = {
+        "success": "成功",
+        "normal_empty": "正常无记录",
+        "failed": "获取失败",
+        "invalid_input": "输入无效",
+    }
+    with st.expander("🗂️ 查看统一数据快照", expanded=False):
+        counts = snapshot.get("status_counts", {})
+        col1, col2, col3 = st.columns(3)
+        col1.metric("计划采集", f"{snapshot.get('request_count', 0)} 项")
+        col2.metric(
+            "可用数据",
+            f"{counts.get('success', 0) + counts.get('normal_empty', 0)} 项",
+        )
+        unavailable = counts.get("failed", 0) + counts.get("invalid_input", 0)
+        col3.metric("不可用数据", f"{unavailable} 项")
+        st.caption(
+            f"快照编号：{snapshot.get('snapshot_id', '旧记录无编号')} · "
+            f"完成时间：{snapshot.get('completed_at', '未知')}"
+        )
+        rows = [
+            {
+                "数据栏目": record.get("label", "数据"),
+                "状态": status_labels.get(record.get("status"), "未知"),
+                "采集时间": record.get("collected_at", ""),
+            }
+            for record in snapshot.get("records", [])
+        ]
+        if rows:
+            st.table(rows)
+
+
 def _safe_filename_label(label: str) -> str:
     cleaned = re.sub(r'[\\/:*?"<>|\s]+', "_", label).strip("_")
     return cleaned or "report"
@@ -120,6 +160,10 @@ def render_report(
     signal = display_signal(final_state, signal)
     color, cn_signal = _signal_style(signal)
     ticker_label = stock_display_label(ticker, final_state)
+    trust = report_trust_display(final_state)
+    trust_color = (
+        "#22c55e" if trust.score >= 4 else "#fbbf24" if trust.score >= 2 else "#ef4444"
+    )
 
     if elapsed is None:
         saved_elapsed = final_state.get("performance_summary", {}).get(
@@ -149,6 +193,12 @@ def render_report(
             <div style="font-size:1.2rem; color:#f5f1eb;">
                 {ticker_label} · {trade_date}
             </div>
+            <div style="font-size:1.15rem; color:{trust_color}; margin-top:0.7rem;">
+                {trust.stars} · {trust.confidence_label}
+            </div>
+            <div style="font-size:0.9rem; color:#aaa; margin-top:0.35rem;">
+                {trust.completion_label} · {trust.scope_label} · {trust.data_label}
+            </div>
             {stats_html}
         </div>
         """,
@@ -159,19 +209,30 @@ def render_report(
 
     if final_state.get("analysis_mode") == "fast":
         st.info(
-            "本次使用快速分析，只覆盖技术、新闻和基本面；没有运行市场情绪、"
+            "本次使用三项速览，只覆盖技术、新闻和基本面；没有运行市场情绪、"
             "政策、游资和解禁监控，结论仅供初步参考。"
         )
 
-    if final_state.get("data_quality_status") == "中":
+    if trust.data_status == "complete":
+        st.success(
+            "数据齐全：本次分析范围内应采数据均已成功获取；无相关记录属于正常情况，"
+            "不算数据缺失。"
+        )
+    elif trust.data_status == "partial":
         st.warning(
-            "部分数据没有取到，系统已忽略这些领域的相关判断；"
+            "部分数据获取成功：系统已忽略没有取到的数据及对应领域判断；"
             "其余成功数据仍参与综合分析。"
         )
         constraints = final_state.get("data_quality_constraints", "")
         if constraints:
             with st.expander("查看本次不能判断的内容", expanded=False):
                 st.markdown(_display_report_text(constraints, ticker, final_state))
+    elif trust.data_status == "critical_missing":
+        st.error("关键数据缺失：本次无法形成可靠分析结论，请勿据此直接买卖。")
+    else:
+        st.info("这是一份旧记录，缺少细分数据状态，无法给出可信度星级。")
+    if final_state.get("decision_validation_status") == "blocked_conflict":
+        st.error("最终评级和操作内容互相矛盾，已通过代码校验拦截，不展示投资结论。")
 
     # Markdown export always works (no font dependency); PDF is generated
     # lazily and guarded so a PDF/font failure never crashes the results page.
@@ -205,10 +266,11 @@ def render_report(
 
     st.markdown("---")
 
+    _render_data_snapshot(final_state)
     _render_performance(final_state)
 
     if is_data_limited(final_state):
-        st.warning(DATA_INCOMPLETE_NOTICE)
+        st.warning(limitation_notice(final_state))
         dqs = final_state.get("data_quality_summary", "")
         if dqs:
             with st.expander("查看数据状态", expanded=True):
@@ -219,7 +281,24 @@ def render_report(
     final_decision = final_state.get("final_trade_decision", "")
     inv_plan = final_state.get("investment_plan", "")
     conclusion = final_decision or inv_plan
-    if conclusion:
+    validated = final_state.get("validated_decision")
+    if (
+        isinstance(validated, dict)
+        and final_state.get("decision_validation_status") == "valid"
+    ):
+        st.markdown("### 👔 一眼看懂的结论")
+        st.markdown(f"**校验后评级：{validated.get('rating_label', '暂无法判断')}**")
+        st.markdown(str(validated.get("action_guidance", "")))
+        risk_level = validated.get("risk_level")
+        risk_prefix = f"风险程度：{risk_level}。" if risk_level else ""
+        st.caption(risk_prefix + str(validated.get("risk_notice", "")))
+        if conclusion:
+            with st.expander("查看结论依据", expanded=True):
+                st.caption("以下是模型分析原文，仅作为依据；操作倾向以页面上方的代码校验结果为准。")
+                displayed = _display_report_text(conclusion, ticker, final_state)
+                st.markdown(displayed)
+        st.markdown("---")
+    elif conclusion:
         st.markdown("### 👔 一眼看懂的结论")
         displayed = _display_report_text(conclusion, ticker, final_state)
         st.markdown(displayed)

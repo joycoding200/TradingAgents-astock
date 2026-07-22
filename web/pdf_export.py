@@ -32,10 +32,11 @@ except ImportError as exc:
 
 from web.stock_display import normalize_stock_mentions, stock_display_label
 from web.plain_language import make_conclusion_plain
+from web.quality_display import report_trust_display
 from web.report_safety import (
-    DATA_INCOMPLETE_NOTICE,
     display_signal,
     is_data_limited,
+    limitation_notice,
     signal_label,
 )
 
@@ -329,7 +330,12 @@ def _format_table_cells(cells: list[str]) -> str:
 
 def _signal_color(signal: str) -> tuple[int, int, int]:
     s = signal.upper()
-    if "数据不完整" in signal or "DATAINCOMPLETE" in s:
+    if (
+        "关键数据缺失" in signal
+        or "数据不完整" in signal
+        or "DATAINCOMPLETE" in s
+        or "DECISIONINVALID" in s
+    ):
         return (249, 115, 22)
     if "BUY" in s:
         return (34, 197, 94)
@@ -362,9 +368,8 @@ class _ReportPDF(FPDF):
         self.ticker_label = stock_display_label(ticker, final_state)
         self.trade_date = trade_date
         self.signal = signal
-        self.analysis_mode = (
-            "快速分析" if (final_state or {}).get("analysis_mode") == "fast" else "完整分析"
-        )
+        self.trust = report_trust_display(final_state or {})
+        self.analysis_scope = self.trust.scope_label
         regular_font, bold_font = _find_cjk_fonts()
 
         try:
@@ -435,7 +440,16 @@ class _ReportPDF(FPDF):
         self.set_text_color(100, 100, 100)
         self.cell(0, 10, f"分析日期: {self.trade_date}", align="C")
         self.ln(8)
-        self.cell(0, 10, f"分析模式: {self.analysis_mode}", align="C")
+        self.cell(0, 10, f"分析范围: {self.analysis_scope}", align="C")
+        self.ln(8)
+        self.cell(0, 10, f"数据状态: {self.trust.data_label}", align="C")
+        self.ln(8)
+        self.cell(
+            0,
+            10,
+            f"报告可信度: {self.trust.score}/5（{self.trust.confidence_label}）",
+            align="C",
+        )
         self.ln(8)
         self.cell(0, 10, f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}", align="C")
         self.ln(20)
@@ -577,7 +591,7 @@ def _collect_sections(
     # Raw reports remain in the saved graph state for operational audit. They
     # must never be exported to an ordinary user after a critical data failure.
     if is_data_limited(final_state):
-        sections.append(("数据状态", DATA_INCOMPLETE_NOTICE))
+        sections.append(("数据状态", limitation_notice(final_state)))
         quality = final_state.get("data_quality_summary", "")
         if quality:
             text = _strip_think(str(quality))
@@ -590,6 +604,22 @@ def _collect_sections(
         constraints = final_state.get("data_quality_constraints", "")
         if constraints:
             sections.append(("数据完整性说明", make_conclusion_plain(constraints)))
+
+    validated = final_state.get("validated_decision")
+    if (
+        final_state.get("decision_validation_status") == "valid"
+        and isinstance(validated, dict)
+    ):
+        risk_level = validated.get("risk_level") or "未评级"
+        sections.append((
+            "代码校验后的结论",
+            "\n".join([
+                f"- 评级：{validated.get('rating_label', '暂无法判断')}",
+                f"- 操作倾向：{validated.get('action_guidance', '')}",
+                f"- 风险程度：{risk_level}",
+                f"- 风险说明：{validated.get('risk_notice', '')}",
+            ]),
+        ))
 
     for key, title in _REPORT_SECTIONS:
         content = final_state.get(key, "")
@@ -619,14 +649,14 @@ def _collect_sections(
         text = _strip_think(str(trader_decision))
         if ticker:
             text = normalize_stock_mentions(text, ticker, final_state)
-        sections.append(("交易员决策", make_conclusion_plain(text)))
+        sections.append(("交易员分析过程（不作为最终指令）", make_conclusion_plain(text)))
 
     inv_plan = final_state.get("investment_plan", "")
     if inv_plan:
         text = _strip_think(str(inv_plan))
         if ticker:
             text = normalize_stock_mentions(text, ticker, final_state)
-        sections.append(("最终投资建议", make_conclusion_plain(text)))
+        sections.append(("研究经理分析过程（不作为最终指令）", make_conclusion_plain(text)))
 
     risk = final_state.get("risk_debate_state")
     if risk and isinstance(risk, dict):
@@ -642,14 +672,14 @@ def _collect_sections(
             text = _strip_think("\n".join(parts))
             if ticker:
                 text = normalize_stock_mentions(text, ticker, final_state)
-            sections.append(("风控评估", make_conclusion_plain(text)))
+            sections.append(("风险讨论过程", make_conclusion_plain(text)))
 
     final_decision = final_state.get("final_trade_decision", "")
     if final_decision:
         text = _strip_think(str(final_decision))
         if ticker:
             text = normalize_stock_mentions(text, ticker, final_state)
-        sections.append(("最终决策", make_conclusion_plain(text)))
+        sections.append(("模型结论依据（不作为操作指令）", make_conclusion_plain(text)))
 
     return sections
 
@@ -683,12 +713,16 @@ def generate_markdown(final_state: dict[str, Any], ticker: str, trade_date: str,
     """
     ticker_label = stock_display_label(ticker, final_state)
     signal = display_signal(final_state, signal)
+    trust = report_trust_display(final_state)
     out = [
         "# A股多Agent投研分析报告",
         "",
         f"- **股票代码**：{ticker_label}",
         f"- **分析日期**：{trade_date}",
-        f"- **分析模式**：{'快速分析（覆盖范围较少）' if final_state.get('analysis_mode') == 'fast' else '完整分析'}",
+        f"- **流程状态**：{trust.completion_label}",
+        f"- **分析范围**：{trust.scope_label}",
+        f"- **数据状态**：{trust.data_label}",
+        f"- **报告可信度**：{trust.stars}（{trust.score}/5，{trust.confidence_label}）",
         f"- **生成时间**：{datetime.now().strftime('%Y-%m-%d %H:%M')}",
         f"- **交易信号**：**{signal_label(signal)}**",
         "",

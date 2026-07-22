@@ -21,7 +21,7 @@ def _results_dir() -> Path:
     return Path.home() / ".tradingagents" / "logs"
 
 
-def get_history(include_mode: bool = False) -> list[dict[str, str]]:
+def get_history(include_mode: bool = False) -> list[dict[str, Any]]:
     """Scan saved analysis logs and return a sorted list (newest first).
 
     Each entry: {"ticker": "300750", "date": "2026-05-12", "path": "/abs/path/...json"}
@@ -30,7 +30,7 @@ def get_history(include_mode: bool = False) -> list[dict[str, str]]:
     if not root.exists():
         return []
 
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, Any]] = []
     for log_file in root.rglob("full_states_log_*.json"):
         match = re.search(r"full_states_log_(\d{4}-\d{2}-\d{2})\.json$", log_file.name)
         if not match:
@@ -48,14 +48,38 @@ def get_history(include_mode: bool = False) -> list[dict[str, str]]:
     # report JSON on every Streamlit rerender while an analysis is running.
     if include_mode:
         for entry in entries[:20]:
-            mode = "full"
+            details: dict[str, Any] = {
+                "analysis_mode": "full",
+                "analysis_completion_status": "completed",
+                "data_completeness_status": "unknown",
+                "data_quality_status": "",
+            }
             try:
                 with open(entry["path"], encoding="utf-8") as f:
                     payload = json.load(f)
-                mode = "fast" if payload.get("analysis_mode") == "fast" else "full"
+                details.update({
+                    "analysis_mode": (
+                        "fast" if payload.get("analysis_mode") == "fast" else "full"
+                    ),
+                    "analysis_completion_status": payload.get(
+                        "analysis_completion_status", "completed"
+                    ),
+                    "data_completeness_status": payload.get(
+                        "data_completeness_status", "unknown"
+                    ),
+                    "data_quality_status": payload.get("data_quality_status", ""),
+                    "report_confidence_score": payload.get(
+                        "report_confidence_score"
+                    ),
+                    "decision_validation_status": payload.get(
+                        "decision_validation_status", "unknown"
+                    ),
+                    "validated_decision": payload.get("validated_decision", {}),
+                    "selected_analysts": payload.get("selected_analysts"),
+                })
             except (OSError, json.JSONDecodeError, AttributeError):
                 pass
-            entry["analysis_mode"] = mode
+            entry.update(details)
     return entries
 
 
@@ -206,6 +230,12 @@ def extract_signal(state: dict[str, Any]) -> str:
     """Extract the final five-tier signal without consulting interim opinions."""
     if state.get("data_quality_status") == "低":
         return "DataIncomplete"
+    validation_status = state.get("decision_validation_status")
+    if validation_status not in {None, "", "unknown", "valid"}:
+        return "DecisionInvalid"
+    validated = state.get("validated_decision")
+    if isinstance(validated, dict) and validated.get("rating"):
+        return str(validated["rating"])
 
     from tradingagents.agents.utils.rating import parse_rating
 

@@ -82,3 +82,27 @@ def test_incomplete_task_writes_are_thread_safe(tmp_path, monkeypatch):
     assert len(entries) == 10
     assert {entry["status"] for entry in entries} == {"running"}
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_completed_history_exposes_scope_and_data_quality_details(tmp_path, monkeypatch):
+    logs = tmp_path / "logs"
+    log_dir = logs / "600519" / "TradingAgentsStrategy_logs"
+    log_dir.mkdir(parents=True)
+    (log_dir / "full_states_log_2026-07-17.json").write_text(
+        json.dumps({
+            "analysis_mode": "full",
+            "analysis_completion_status": "completed",
+            "data_completeness_status": "complete",
+            "data_quality_status": "高",
+            "report_confidence_score": 5,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(history, "_results_dir", lambda: logs)
+
+    entry = history.get_history(include_mode=True)[0]
+
+    assert entry["analysis_mode"] == "full"
+    assert entry["analysis_completion_status"] == "completed"
+    assert entry["data_completeness_status"] == "complete"
+    assert entry["report_confidence_score"] == 5

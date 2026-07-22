@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 
 PIPELINE_STAGES: list[dict[str, str]] = [
+    {"id": "data_snapshot", "name": "统一采集数据", "icon": "🗂️", "report_key": "data_snapshot"},
     {"id": "market", "name": "技术分析", "icon": "📊", "report_key": "market_report"},
     {"id": "social", "name": "情绪分析", "icon": "💬", "report_key": "sentiment_report"},
     {"id": "news", "name": "新闻舆情", "icon": "📰", "report_key": "news_report"},

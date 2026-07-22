@@ -18,6 +18,7 @@ from web.history import (
     get_incomplete_history,
     record_incomplete_task,
 )
+from web.quality_display import report_trust_display
 from web.trading_dates import most_recent_weekday
 
 # Provider display names in recommended order
@@ -247,19 +248,19 @@ def render_sidebar() -> None:
     tracker = st.session_state.get("tracker")
     mode_label = st.radio(
         "分析模式",
-        ["完整分析", "快速分析"],
+        ["七项分析", "三项速览"],
         horizontal=True,
-        key="analysis_mode_label",
+        key="analysis_scope_label",
         disabled=tracker is not None and tracker.is_running,
         help=(
-            "完整分析使用七个研究角度；快速分析仅保留技术、新闻和基本面，"
+            "七项分析使用七个研究角度；三项速览仅保留技术、新闻和基本面，"
             "覆盖范围较少，但仍执行数据质量门控。"
         ),
     )
-    analysis_mode = "fast" if mode_label == "快速分析" else "full"
+    analysis_mode = "fast" if mode_label == "三项速览" else "full"
     st.session_state["analysis_mode"] = analysis_mode
     if analysis_mode == "fast":
-        st.caption("快速分析覆盖较少，结论仅供初步参考；需要全面判断请选择完整分析。")
+        st.caption("三项速览覆盖较少，结论仅供初步参考；需要全面判断请选择七项分析。")
 
     # Streamlit currently has no autofocus option for text_input.  On the
     # first render of a session, focus the stock box from a tiny same-origin
@@ -361,6 +362,7 @@ def render_sidebar() -> None:
 
     st.markdown("---")
     st.markdown("#### 历史记录")
+    st.caption("星级综合分析范围和数据可用性；正常无记录不算数据缺失。")
 
     history = get_history(include_mode=True)
     if not history:
@@ -369,11 +371,15 @@ def render_sidebar() -> None:
 
     for entry in history[:20]:
         t, d = entry["ticker"], entry["date"]
-        mode = "快速" if entry.get("analysis_mode") == "fast" else "完整"
-        label = f"{t}  ·  {d}  ·  {mode}"
+        trust = report_trust_display(entry)
+        label = f"{trust.stars}  {t}  ·  {d}"
         if st.button(label, key=f"hist_{t}_{d}", use_container_width=True):
             st.session_state["viewing_history"] = entry["path"]
             st.session_state["start_analysis"] = None
+        st.caption(
+            f"{trust.completion_label} · {trust.scope_label} · "
+            f"{trust.data_label} · {trust.confidence_label}"
+        )
 
     st.markdown("---")
     st.caption("⚠️ 仅供学习研究，不构成投资建议")
